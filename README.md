@@ -28,5 +28,5 @@ http:
         authztraefikgateway:
           keycloakURL: "https://keycloak.local/realms/demo/protocol/openid-connect/token"
           keycloakClientId: "traefik-client"
-		  resourceIndex: 3
+          resourceIndex: 3
           scopeIndex: 4
