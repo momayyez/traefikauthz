@@ -1,0 +1,13 @@
+displayName: Traefik AuthZ
+type: middleware
+iconPath: .assets/icon.png
+
+import: github.com/momayyez/traefikauthz
+
+summary: Authorization middleware for validating Keycloak permissions using UMA 2.0
+
+testData:
+  keycloak_url: http://keycloak:8080/realms/demo/protocol/openid-connect/token
+  keycloak_client_id: traefik-client
+  resourceIndex: 3
+  scopeIndex: 4
