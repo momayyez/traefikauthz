@@ -137,10 +137,10 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	resourceIndex := config.ResourceIndex
 	scopeIndex := config.ScopeIndex
 	if resourceIndex <= 0 {
-		resourceIndex = 4
+		resourceIndex = 3
 	}
 	if scopeIndex <= 0 {
-		scopeIndex = 5
+		scopeIndex = 4
 	}
 
 	mw := &AuthMiddleware{
