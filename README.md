@@ -30,3 +30,7 @@ http:
           keycloakClientId: "traefik-client"
           resourceIndex: 3
           scopeIndex: 4
+          staticPermissions:
+          - prefix: "/health"
+            resource: "system"
+            scope: "read
