@@ -33,4 +33,4 @@ http:
           staticPermissions:
           - prefix: "/health"
             resource: "system"
-            scope: "read
+            scope: "read"
