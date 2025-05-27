@@ -1,6 +1,5 @@
 package traefikauthz
 
-
 import (
 	"context"
 	"crypto/tls" // TLS config for development
@@ -43,22 +42,19 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fmt.Println("🔎 [AUTH] Authorization Header:", authorizationHeader)
 
 	// 🧠 Extract the path and derive `resource` and `scope`
-	// Assumes path like: /prefix1/prefix2/<resource>/<scope>/...
 	pathParts := strings.Split(req.URL.Path, "/")
 	if len(pathParts) < 5 {
-		// Needs at least 5 parts: "", prefix1, prefix2, resource, scope
-		fmt.Println("❌ [AUTH] Path too short. Must be at least: /.../<resource>/<scope>/...")
-		http.Error(w, "Invalid path format. Expected format: /prefix/.../<resource>/<scope>", http.StatusBadRequest)
+		fmt.Println("❌ [AUTH] Path too short. Must have at least: /prefix1/prefix2/resource/scope/...")
+		http.Error(w, "Invalid path format. Expected format: /prefix/.../resource/scope", http.StatusBadRequest)
 		return
 	}
 
-	// Extract `resource` and `scope` as the 3th and 4th segments (index 3 and 4)
-	resource := pathParts[3]
-	scope := pathParts[4]
+	// 🔤 Normalize to lowercase
+	resource := strings.ToLower(pathParts[3])
+	scope := strings.ToLower(pathParts[4])
 	permission := "/" + resource + "#" + scope
 	fmt.Println("🔎 [AUTH] Derived permission:", permission)
 
-	// Prepare request payload for Keycloak
 	formData := url.Values{}
 	formData.Set("permission", permission)
 	formData.Set("grant_type", "urn:ietf:params:oauth:grant-type:uma-ticket")
@@ -70,7 +66,6 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// 🔐 Build the request to Keycloak
 	kcReq, err := http.NewRequest("POST", am.keycloakUrl, strings.NewReader(formData.Encode()))
 	if err != nil {
 		fmt.Println("❌ [HTTP] Error creating Keycloak request:", err)
@@ -82,16 +77,12 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	fmt.Println("🔄 [REQUEST] Sending request to Keycloak:", am.keycloakUrl)
 
-	// ⚠️ TLS config: skip verify only for development/testing!
 	client := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 	}
 
-	// 🔍 Send request to Keycloak
 	kcResp, err := client.Do(kcReq)
 	if err != nil {
 		fmt.Println("❌ [HTTP] Error performing Keycloak request:", err)
@@ -100,7 +91,6 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	defer kcResp.Body.Close()
 
-	// 📦 Read and log Keycloak's response
 	bodyBytes, _ := io.ReadAll(kcResp.Body)
 	bodyString := string(bodyBytes)
 
@@ -119,19 +109,17 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 // New is called by Traefik to create the middleware instance
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	fmt.Println("🔧 [INIT] New Middleware Initialization")
-	fmt.Printf("🔧 [INIT] Config pointer: %p\n", config)
 	fmt.Printf("🔧 [CONFIG] Raw config: %+v\n", config)
 
 	if config == nil {
 		fmt.Println("❌ [CONFIG] Received nil config! Middleware cannot proceed.")
 		return nil, fmt.Errorf("nil config provided")
 	}
-
 	if strings.TrimSpace(config.KeycloakURL) == "" {
-		fmt.Println("⚠️  [CONFIG] KeycloakURL is empty! Make sure you define it in the dynamic middleware config.")
+		fmt.Println("⚠️  [CONFIG] KeycloakURL is empty!")
 	}
 	if strings.TrimSpace(config.KeycloakClientId) == "" {
-		fmt.Println("⚠️  [CONFIG] KeycloakClientId is empty! Make sure you define it in the dynamic middleware config.")
+		fmt.Println("⚠️  [CONFIG] KeycloakClientId is empty!")
 	}
 
 	mw := &AuthMiddleware{
