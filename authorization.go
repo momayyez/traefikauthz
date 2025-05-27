@@ -52,7 +52,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// 🔤 Normalize to lowercase
 	resource := strings.ToLower(pathParts[3])
 	scope := strings.ToLower(pathParts[4])
-	permission := "/" + resource + "#" + scope
+	permission := resource + "#" + scope
 	fmt.Println("🔎 [AUTH] Derived permission:", permission)
 
 	formData := url.Values{}
