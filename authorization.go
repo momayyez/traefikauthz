@@ -37,7 +37,10 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Check if request should be excluded based on prefix
 	for _, excluded := range am.excludedPaths {
-		if strings.HasPrefix(strings.ToLower(req.URL.Path), strings.ToLower(excluded)) {
+		//Debuging
+		fmt.Println("🚫 [DEBUG_GO]:", req.URL.Path)
+		fmt.Println("🚫 [DEBUG_GO]:", excluded)
+		if strings.Compare(strings.ToLower(req.URL.Path), strings.ToLower(excluded)) {
 			fmt.Println("🚫 [AUTH] Request excluded from authorization:", req.URL.Path)
 			am.next.ServeHTTP(w, req)
 			return
