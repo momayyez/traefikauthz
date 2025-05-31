@@ -41,11 +41,15 @@ type AuthMiddleware struct {
 
 // ServeHTTP handles the incoming request and checks permission via Keycloak
 func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	fmt.Println("🔎 [AUTH] ServeHTTP Called")
+	if am.logLevel == "debug" {
+		fmt.Println("🔎 [AUTH] ServeHTTP Called")
+	}
 
 	authorizationHeader := req.Header.Get("Authorization")
 	if authorizationHeader == "" {
-		fmt.Println("❌ [AUTH] Authorization header is missing")
+		if am.logLevel != "off" {
+			fmt.Println("❌ [AUTH] Authorization header is missing")
+		}
 		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 		return
 	}
@@ -53,7 +57,9 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// 🧠 Extract the path and derive `resource` and `scope`
 	pathParts := strings.Split(req.URL.Path, "/")
 	if len(pathParts) <= am.scopeSegmentIndex {
-		fmt.Println("❌ [AUTH] Path too short for configured resource/scope indexes.")
+		if am.logLevel != "off" {
+			fmt.Println("❌ [AUTH] Path too short for configured resource/scope indexes.")
+		}
 		http.Error(w, "Invalid path format. Expected enough segments", http.StatusBadRequest)
 		return
 	}
@@ -61,7 +67,10 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	resource := strings.ToLower(pathParts[am.resourceSegmentIndex])
 	scope := strings.ToLower(pathParts[am.scopeSegmentIndex])
 	permission := resource + "#" + scope
-	fmt.Println("🔎 [AUTH] Derived permission:", permission)
+
+	if am.logLevel == "debug" {
+		fmt.Println("🔎 [AUTH] Derived permission:", permission)
+	}
 
 	formData := url.Values{}
 	formData.Set("permission", permission)
@@ -69,7 +78,9 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	formData.Set("audience", am.keycloakClientId)
 
 	if am.keycloakUrl == "" {
-		fmt.Println("❌ [CONFIG] Keycloak URL is empty in middleware. Cannot proceed.")
+		if am.logLevel != "off" {
+			fmt.Println("❌ [CONFIG] Keycloak URL is empty in middleware. Cannot proceed.")
+		}
 		http.Error(w, "Misconfigured Keycloak URL", http.StatusInternalServerError)
 		return
 	}
@@ -81,7 +92,9 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	kcReq, err := http.NewRequest("POST", am.keycloakUrl, strings.NewReader(formData.Encode()))
 	if err != nil {
-		fmt.Println("❌ [HTTP] Error creating Keycloak request:", err)
+		if am.logLevel != "off" {
+			fmt.Println("❌ [HTTP] Error creating Keycloak request:", err)
+		}
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
@@ -96,7 +109,9 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	kcResp, err := client.Do(kcReq)
 	if err != nil {
-		fmt.Println("❌ [HTTP] Error performing Keycloak request:", err)
+		if am.logLevel != "off" {
+			fmt.Println("❌ [HTTP] Error performing Keycloak request:", err)
+		}
 		http.Error(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
@@ -113,27 +128,35 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if kcResp.StatusCode == http.StatusOK {
-		fmt.Println("✅ [AUTHZ] Access granted by Keycloak")
+		if am.logLevel != "off" {
+			fmt.Println("✅ [AUTHZ] Access granted by Keycloak")
+		}
 		am.next.ServeHTTP(w, req)
 	} else {
-		fmt.Printf("❌ [AUTHZ] Access denied by Keycloak. Status code: %d\n", kcResp.StatusCode)
+		if am.logLevel != "off" {
+			fmt.Printf("❌ [AUTHZ] Access denied by Keycloak. Status code: %d\n", kcResp.StatusCode)
+		}
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 	}
 }
 
 // New is called by Traefik to create the middleware instance
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
-	fmt.Println("🔧 [INIT] New Middleware Initialization")
-	fmt.Printf("🔧 [CONFIG] Raw config: %+v\n", config)
+	if strings.ToLower(config.LogLevel) != "off" {
+		fmt.Println("🔧 [INIT] New Middleware Initialization")
+		fmt.Printf("🔧 [CONFIG] Raw config: %+v\n", config)
+	}
 
 	if config == nil {
-		fmt.Println("❌ [CONFIG] Received nil config! Middleware cannot proceed.")
+		if strings.ToLower(config.LogLevel) != "off" {
+			fmt.Println("❌ [CONFIG] Received nil config! Middleware cannot proceed.")
+		}
 		return nil, fmt.Errorf("nil config provided")
 	}
-	if strings.TrimSpace(config.KeycloakURL) == "" {
+	if strings.TrimSpace(config.KeycloakURL) == "" && strings.ToLower(config.LogLevel) != "off" {
 		fmt.Println("⚠️  [CONFIG] KeycloakURL is empty!")
 	}
-	if strings.TrimSpace(config.KeycloakClientId) == "" {
+	if strings.TrimSpace(config.KeycloakClientId) == "" && strings.ToLower(config.LogLevel) != "off" {
 		fmt.Println("⚠️  [CONFIG] KeycloakClientId is empty!")
 	}
 
@@ -147,7 +170,9 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		logLevel:             strings.ToLower(config.LogLevel),
 	}
 
-	fmt.Printf("🔧 [INIT] Middleware initialized with keycloakUrl: [%s], keycloakClientId: [%s]\n", mw.keycloakUrl, mw.keycloakClientId)
+	if mw.logLevel != "off" {
+		fmt.Printf("🔧 [INIT] Middleware initialized with keycloakUrl: [%s], keycloakClientId: [%s]\n", mw.keycloakUrl, mw.keycloakClientId)
+	}
 
 	return mw, nil
 }
