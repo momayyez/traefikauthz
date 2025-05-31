@@ -2,7 +2,7 @@ package traefikauthz
 
 import (
 	"context"
-	"crypto/tls" // TLS config for development
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,40 +12,33 @@ import (
 
 // Config holds the plugin configuration (camelCase names to match YAML keys)
 type Config struct {
-	KeycloakURL      string   `json:"keycloakURL,omitempty"`
-	KeycloakClientId string   `json:"keycloakClientId,omitempty"`
-	ExcludedPaths    []string `json:"excludedPaths,omitempty"` // New: optional list of excluded path prefixes
+	KeycloakURL           string `json:"keycloakURL,omitempty"`
+	KeycloakClientId      string `json:"keycloakClientId,omitempty"`
+	ResourceSegmentIndex  int    `json:"resourceSegmentIndex,omitempty"`
+	ScopeSegmentIndex     int    `json:"scopeSegmentIndex,omitempty"`
 }
 
 // CreateConfig creates an empty config; actual values come from YAML
 func CreateConfig() *Config {
-	return &Config{}
+	return &Config{
+		ResourceSegmentIndex: 3,
+		ScopeSegmentIndex:    4,
+	}
 }
 
 // AuthMiddleware holds the plugin state
 type AuthMiddleware struct {
-	next             http.Handler
-	keycloakClientId string
-	keycloakUrl      string
-	name             string
-	excludedPaths    []string
+	next                 http.Handler
+	keycloakClientId     string
+	keycloakUrl          string
+	name                 string
+	resourceSegmentIndex int
+	scopeSegmentIndex    int
 }
 
 // ServeHTTP handles the incoming request and checks permission via Keycloak
 func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fmt.Println("🔎 [AUTH] ServeHTTP Called")
-
-	// Check if request should be excluded based on prefix
-	for _, excluded := range am.excludedPaths {
-		//Debuging
-		fmt.Println("🚫 [DEBUG_GO]:", req.URL.Path)
-		fmt.Println("🚫 [DEBUG_GO]:", excluded)
-		if strings.Compare(strings.ToLower(req.URL.Path), strings.ToLower(excluded)) {
-			fmt.Println("🚫 [AUTH] Request excluded from authorization:", req.URL.Path)
-			am.next.ServeHTTP(w, req)
-			return
-		}
-	}
 
 	authorizationHeader := req.Header.Get("Authorization")
 	if authorizationHeader == "" {
@@ -57,15 +50,15 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// 🧠 Extract the path and derive `resource` and `scope`
 	pathParts := strings.Split(req.URL.Path, "/")
-	if len(pathParts) < 5 {
-		fmt.Println("❌ [AUTH] Path too short. Must be at least: /prefix1/prefix2/resource/scope/...")
-		http.Error(w, "Invalid path format. Expected format: /prefix/.../resource/scope", http.StatusBadRequest)
+
+	if len(pathParts) <= am.scopeSegmentIndex {
+		fmt.Println("❌ [AUTH] Path too short for configured resource/scope indexes.")
+		http.Error(w, "Invalid path format. Expected enough segments", http.StatusBadRequest)
 		return
 	}
 
-	// 🔤 Normalize to lowercase
-	resource := strings.ToLower(pathParts[3])
-	scope := strings.ToLower(pathParts[4])
+	resource := strings.ToLower(pathParts[am.resourceSegmentIndex])
+	scope := strings.ToLower(pathParts[am.scopeSegmentIndex])
 	permission := resource + "#" + scope
 	fmt.Println("🔎 [AUTH] Derived permission:", permission)
 
@@ -137,11 +130,12 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 	}
 
 	mw := &AuthMiddleware{
-		next:             next,
-		name:             name,
-		keycloakUrl:      config.KeycloakURL,
-		keycloakClientId: config.KeycloakClientId,
-		excludedPaths:    config.ExcludedPaths,
+		next:                 next,
+		name:                 name,
+		keycloakUrl:          config.KeycloakURL,
+		keycloakClientId:     config.KeycloakClientId,
+		resourceSegmentIndex: config.ResourceSegmentIndex,
+		scopeSegmentIndex:    config.ScopeSegmentIndex,
 	}
 
 	fmt.Printf("🔧 [INIT] Middleware initialized with keycloakUrl: [%s], keycloakClientId: [%s]\n", mw.keycloakUrl, mw.keycloakClientId)
