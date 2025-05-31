@@ -16,6 +16,7 @@ type Config struct {
 	KeycloakClientId      string `json:"keycloakClientId,omitempty"`
 	ResourceSegmentIndex  int    `json:"resourceSegmentIndex,omitempty"`
 	ScopeSegmentIndex     int    `json:"scopeSegmentIndex,omitempty"`
+	LogLevel              string `json:"logLevel,omitempty"` // "off", "info", "debug"
 }
 
 // CreateConfig creates an empty config; actual values come from YAML
@@ -23,6 +24,7 @@ func CreateConfig() *Config {
 	return &Config{
 		ResourceSegmentIndex: 3,
 		ScopeSegmentIndex:    4,
+		LogLevel:             "info",
 	}
 }
 
@@ -34,6 +36,7 @@ type AuthMiddleware struct {
 	name                 string
 	resourceSegmentIndex int
 	scopeSegmentIndex    int
+	logLevel             string
 }
 
 // ServeHTTP handles the incoming request and checks permission via Keycloak
@@ -46,11 +49,9 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 		return
 	}
-	fmt.Println("🔎 [AUTH] Authorization Header:", authorizationHeader)
 
 	// 🧠 Extract the path and derive `resource` and `scope`
 	pathParts := strings.Split(req.URL.Path, "/")
-
 	if len(pathParts) <= am.scopeSegmentIndex {
 		fmt.Println("❌ [AUTH] Path too short for configured resource/scope indexes.")
 		http.Error(w, "Invalid path format. Expected enough segments", http.StatusBadRequest)
@@ -73,6 +74,11 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if am.logLevel == "debug" {
+		fmt.Println("🔄 [REQUEST] Sending request to Keycloak:", am.keycloakUrl)
+		fmt.Println("🔸 [DEBUG] Authorization Header:", authorizationHeader)
+	}
+
 	kcReq, err := http.NewRequest("POST", am.keycloakUrl, strings.NewReader(formData.Encode()))
 	if err != nil {
 		fmt.Println("❌ [HTTP] Error creating Keycloak request:", err)
@@ -81,8 +87,6 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	kcReq.Header.Set("Authorization", authorizationHeader)
 	kcReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	fmt.Println("🔄 [REQUEST] Sending request to Keycloak:", am.keycloakUrl)
 
 	client := &http.Client{
 		Transport: &http.Transport{
@@ -101,8 +105,12 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	bodyBytes, _ := io.ReadAll(kcResp.Body)
 	bodyString := string(bodyBytes)
 
-	fmt.Println("🔎 [HTTP] Keycloak response status:", kcResp.Status)
-	fmt.Println("📦 [HTTP] Keycloak response body:", bodyString)
+	if am.logLevel == "debug" {
+		fmt.Println("🔎 [HTTP] Keycloak response status:", kcResp.Status)
+		fmt.Println("📦 [HTTP] Keycloak response body:", bodyString)
+	} else if am.logLevel == "info" {
+		fmt.Println("🔎 [HTTP] Keycloak response status:", kcResp.Status)
+	}
 
 	if kcResp.StatusCode == http.StatusOK {
 		fmt.Println("✅ [AUTHZ] Access granted by Keycloak")
@@ -136,6 +144,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		keycloakClientId:     config.KeycloakClientId,
 		resourceSegmentIndex: config.ResourceSegmentIndex,
 		scopeSegmentIndex:    config.ScopeSegmentIndex,
+		logLevel:             strings.ToLower(config.LogLevel),
 	}
 
 	fmt.Printf("🔧 [INIT] Middleware initialized with keycloakUrl: [%s], keycloakClientId: [%s]\n", mw.keycloakUrl, mw.keycloakClientId)
