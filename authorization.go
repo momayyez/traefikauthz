@@ -10,25 +10,27 @@ import (
 	"strings"
 )
 
-// Config holds the plugin configuration (camelCase names to match YAML keys)
+// Config holds the plugin configuration
 type Config struct {
-	KeycloakURL           string `json:"keycloakURL,omitempty"`
-	KeycloakClientId      string `json:"keycloakClientId,omitempty"`
-	ResourceSegmentIndex  int    `json:"resourceSegmentIndex,omitempty"`
-	ScopeSegmentIndex     int    `json:"scopeSegmentIndex,omitempty"`
-	LogLevel              string `json:"logLevel,omitempty"` // "off", "info", "debug"
+	KeycloakURL           string            `json:"keycloakURL,omitempty"`
+	KeycloakClientId      string            `json:"keycloakClientId,omitempty"`
+	ResourceSegmentIndex  int               `json:"resourceSegmentIndex,omitempty"`
+	ScopeSegmentIndex     int               `json:"scopeSegmentIndex,omitempty"`
+	LogLevel              string            `json:"logLevel,omitempty"` // "off", "info", "debug"
+	StaticPermissions     map[string]string `json:"staticPermissions,omitempty"` // prefix path -> permission
 }
 
-// CreateConfig creates an empty config; actual values come from YAML
+// CreateConfig returns a config with default values
 func CreateConfig() *Config {
 	return &Config{
 		ResourceSegmentIndex: 3,
 		ScopeSegmentIndex:    4,
 		LogLevel:             "info",
+		StaticPermissions:    make(map[string]string),
 	}
 }
 
-// AuthMiddleware holds the plugin state
+// AuthMiddleware holds the plugin runtime state
 type AuthMiddleware struct {
 	next                 http.Handler
 	keycloakClientId     string
@@ -37,9 +39,10 @@ type AuthMiddleware struct {
 	resourceSegmentIndex int
 	scopeSegmentIndex    int
 	logLevel             string
+	staticPermissions    map[string]string
 }
 
-// ServeHTTP handles the incoming request and checks permission via Keycloak
+// ServeHTTP is the core authorization logic
 func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if am.logLevel == "debug" {
 		fmt.Println("🔎 [AUTH] ServeHTTP Called")
@@ -54,22 +57,38 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// 🧠 Extract the path and derive `resource` and `scope`
-	pathParts := strings.Split(req.URL.Path, "/")
-	if len(pathParts) <= am.scopeSegmentIndex {
-		if am.logLevel != "off" {
-			fmt.Println("❌ [AUTH] Path too short for configured resource/scope indexes.")
+	var permission string
+	matched := false
+
+	// Check static permissions by prefix match
+	for prefix, staticPerm := range am.staticPermissions {
+		if strings.HasPrefix(req.URL.Path, prefix) {
+			permission = staticPerm
+			matched = true
+			if am.logLevel == "debug" {
+				fmt.Printf("📌 [AUTH] Static permission matched (prefix) for path [%s] → %s\n", req.URL.Path, permission)
+			}
+			break
 		}
-		http.Error(w, "Invalid path format. Expected enough segments", http.StatusBadRequest)
-		return
 	}
 
-	resource := strings.ToLower(pathParts[am.resourceSegmentIndex])
-	scope := strings.ToLower(pathParts[am.scopeSegmentIndex])
-	permission := resource + "#" + scope
+	// Fallback to dynamic extraction
+	if !matched {
+		pathParts := strings.Split(req.URL.Path, "/")
+		if len(pathParts) <= am.scopeSegmentIndex {
+			if am.logLevel != "off" {
+				fmt.Println("❌ [AUTH] Path too short for configured resource/scope indexes.")
+			}
+			http.Error(w, "Invalid path format. Expected enough segments", http.StatusBadRequest)
+			return
+		}
+		resource := strings.ToLower(pathParts[am.resourceSegmentIndex])
+		scope := strings.ToLower(pathParts[am.scopeSegmentIndex])
+		permission = resource + "#" + scope
 
-	if am.logLevel == "debug" {
-		fmt.Println("🔎 [AUTH] Derived permission:", permission)
+		if am.logLevel == "debug" {
+			fmt.Println("🔎 [AUTH] Derived permission:", permission)
+		}
 	}
 
 	formData := url.Values{}
@@ -140,7 +159,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// New is called by Traefik to create the middleware instance
+// New initializes the middleware instance
 func New(ctx context.Context, next http.Handler, config *Config, name string) (http.Handler, error) {
 	if strings.ToLower(config.LogLevel) != "off" {
 		fmt.Println("🔧 [INIT] New Middleware Initialization")
@@ -168,6 +187,7 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		resourceSegmentIndex: config.ResourceSegmentIndex,
 		scopeSegmentIndex:    config.ScopeSegmentIndex,
 		logLevel:             strings.ToLower(config.LogLevel),
+		staticPermissions:    config.StaticPermissions,
 	}
 
 	if mw.logLevel != "off" {
