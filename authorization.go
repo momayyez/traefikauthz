@@ -109,12 +109,13 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		fmt.Println("🔸 [DEBUG] Authorization Header:", authorizationHeader)
 	}
 
+	// 500
 	kcReq, err := http.NewRequest("POST", am.keycloakUrl, strings.NewReader(formData.Encode()))
 	if err != nil {
 		if am.logLevel != "off" {
 			fmt.Println("❌ [HTTP] Error creating Keycloak request:", err)
 		}
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		http.Error(w, "Failed to create request to Keycloak", http.StatusInternalServerError)
 		return
 	}
 	kcReq.Header.Set("Authorization", authorizationHeader)
@@ -126,12 +127,13 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		},
 	}
 
+	// 502
 	kcResp, err := client.Do(kcReq)
 	if err != nil {
 		if am.logLevel != "off" {
 			fmt.Println("❌ [HTTP] Error performing Keycloak request:", err)
 		}
-		http.Error(w, err.Error(), http.StatusUnauthorized)
+		http.Error(w, "Unable to reach Keycloak", http.StatusBadGateway)
 		return
 	}
 	defer kcResp.Body.Close()
@@ -146,6 +148,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		fmt.Println("🔎 [HTTP] Keycloak response status:", kcResp.Status)
 	}
 
+	// 403/401
 	if kcResp.StatusCode == http.StatusOK {
 		if am.logLevel != "off" {
 			fmt.Println("✅ [AUTHZ] Access granted by Keycloak")
@@ -155,7 +158,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if am.logLevel != "off" {
 			fmt.Printf("❌ [AUTHZ] Access denied by Keycloak. Status code: %d\n", kcResp.StatusCode)
 		}
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		http.Error(w, "Access denied", kcResp.StatusCode)
 	}
 }
 
