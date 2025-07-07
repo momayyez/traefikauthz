@@ -60,7 +60,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var permission string
 	matched := false
 
-	// Check static permissions by prefix match
+	// Match static permission from config (based on prefix)
 	for prefix, staticPerm := range am.staticPermissions {
 		if strings.HasPrefix(req.URL.Path, prefix) {
 			permission = staticPerm
@@ -72,7 +72,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	// Fallback to dynamic extraction
+	// If no static match, build dynamic permission
 	if !matched {
 		pathParts := strings.Split(req.URL.Path, "/")
 		if len(pathParts) <= am.scopeSegmentIndex {
@@ -109,7 +109,6 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		fmt.Println("🔸 [DEBUG] Authorization Header:", authorizationHeader)
 	}
 
-	// 500
 	kcReq, err := http.NewRequest("POST", am.keycloakUrl, strings.NewReader(formData.Encode()))
 	if err != nil {
 		if am.logLevel != "off" {
@@ -127,7 +126,6 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		},
 	}
 
-	// 502
 	kcResp, err := client.Do(kcReq)
 	if err != nil {
 		if am.logLevel != "off" {
@@ -148,7 +146,17 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		fmt.Println("🔎 [HTTP] Keycloak response status:", kcResp.Status)
 	}
 
-	// 403/401
+	// Override 400 to 403 for specific Keycloak errors
+	if kcResp.StatusCode == http.StatusBadRequest &&
+		(strings.Contains(bodyString, `"error":"invalid_scope"`) || strings.Contains(bodyString, `"error":"invalid_resource"`)) {
+		if am.logLevel != "off" {
+			fmt.Println("🚫 [AUTHZ] Keycloak returned 400 with invalid scope/resource – overriding to 403")
+		}
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// Pass request if authorized
 	if kcResp.StatusCode == http.StatusOK {
 		if am.logLevel != "off" {
 			fmt.Println("✅ [AUTHZ] Access granted by Keycloak")
