@@ -3,12 +3,31 @@ package traefikauthz
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 )
+
+type errorResponse struct {
+	IsSuccess  bool   `json:"isSuccess"`
+	StatusCode int    `json:"statusCode"`
+	Message    string `json:"message"`
+}
+
+// writeJSONError sends a JSON formatted error to the client
+func writeJSONError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	resp := errorResponse{
+		IsSuccess:  false,
+		StatusCode: statusCode,
+		Message:    message,
+	}
+	_ = json.NewEncoder(w).Encode(resp)
+}
 
 // Config holds the plugin configuration
 type Config struct {
@@ -53,7 +72,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if am.logLevel != "off" {
 			fmt.Println("❌ [AUTH] Authorization header is missing")
 		}
-		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+		writeJSONError(w, "Missing Authorization header", http.StatusUnauthorized)
 		return
 	}
 
@@ -79,7 +98,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			if am.logLevel != "off" {
 				fmt.Println("❌ [AUTH] Path too short for configured resource/scope indexes.")
 			}
-			http.Error(w, "Invalid path format. Expected enough segments", http.StatusBadRequest)
+			writeJSONError(w, "Invalid path format. Expected enough segments", http.StatusBadRequest)
 			return
 		}
 		resource := strings.ToLower(pathParts[am.resourceSegmentIndex])
@@ -100,7 +119,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if am.logLevel != "off" {
 			fmt.Println("❌ [CONFIG] Keycloak URL is empty in middleware. Cannot proceed.")
 		}
-		http.Error(w, "Misconfigured Keycloak URL", http.StatusInternalServerError)
+		writeJSONError(w, "Misconfigured Keycloak URL", http.StatusInternalServerError)
 		return
 	}
 
@@ -114,7 +133,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if am.logLevel != "off" {
 			fmt.Println("❌ [HTTP] Error creating Keycloak request:", err)
 		}
-		http.Error(w, "Failed to create request to Keycloak", http.StatusInternalServerError)
+		writeJSONError(w, "Failed to create request to Keycloak", http.StatusInternalServerError)
 		return
 	}
 	kcReq.Header.Set("Authorization", authorizationHeader)
@@ -131,7 +150,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if am.logLevel != "off" {
 			fmt.Println("❌ [HTTP] Error performing Keycloak request:", err)
 		}
-		http.Error(w, "Unable to reach Keycloak", http.StatusBadGateway)
+		writeJSONError(w, "Unable to reach Keycloak", http.StatusBadGateway)
 		return
 	}
 	defer kcResp.Body.Close()
@@ -152,7 +171,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if am.logLevel != "off" {
 			fmt.Println("🚫 [AUTHZ] Keycloak returned 400 with invalid scope/resource – overriding to 403")
 		}
-		http.Error(w, "Access denied", http.StatusForbidden)
+		writeJSONError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
@@ -166,7 +185,7 @@ func (am *AuthMiddleware) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if am.logLevel != "off" {
 			fmt.Printf("❌ [AUTHZ] Access denied by Keycloak. Status code: %d\n", kcResp.StatusCode)
 		}
-		http.Error(w, "Access denied", kcResp.StatusCode)
+		writeJSONError(w, "Access denied", kcResp.StatusCode)
 	}
 }
 
